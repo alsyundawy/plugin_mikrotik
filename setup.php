@@ -692,7 +692,13 @@ function mikrotik_config_settings() {
 			'friendly_name' => __('MikroTik Poller Enabled', 'mikrotik'),
 			'description' => __('Check this box, if you want MikroTik polling to be enabled.  Otherwise, the poller will not function.', 'mikrotik'),
 			'method' => 'checkbox',
-			'default' => ''
+			'default' => 'on'
+			),
+		'mikrotik_api_enabled' => array(
+			'friendly_name' => __('MikroTik API Polling Enabled', 'mikrotik'),
+			'description' => __('Check this box, if you want Cacti to poll various settings using the MikroTik API.  If for some reason you don\'t have access to the MikroTik API, uncheck this option.', 'mikrotik'),
+			'method' => 'checkbox',
+			'default' => 'on'
 			),
 		'mikrotik_autodiscovery' => array(
 			'friendly_name' => __('Automatically Discover Cacti Devices', 'mikrotik'),
@@ -874,7 +880,7 @@ function mikrotik_config_arrays() {
 	global $wireless_station_hashes, $wirless_reg_hashes, $interface_hashes;
 	global $device_hashes, $device_health_hashes, $graph_template_hashes, $device_query_hashes;
 
-	$menu[__('Management', 'mikrotik')]['plugins/mikrotik/mikrotik_users.php'] = __('MikroTik Users', 'mikrotik');
+	$menu[__('Management')]['plugins/mikrotik/mikrotik_users.php'] = __('MikroTik Users', 'mikrotik');
 
 	$queue_hashes = array(
 		'2873cd299a639cbdc19320c7c59b76e0',

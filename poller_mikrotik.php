@@ -202,24 +202,26 @@ function autoDiscoverHosts() {
 		AND disabled!='on'
 		AND status!=1");
 
-	$template_id = db_fetch_cell('SELECT id FROM host_template WHERE hash="d364e2b9570f166ab33c8df8bd503887"');
+	$template_id = db_fetch_cell('SELECT id
+		FROM host_template
+		WHERE hash="d364e2b9570f166ab33c8df8bd503887"');
 
-	debug("Starting AutoDiscovery for '" . sizeof($hosts) . "' Hosts");
+	debug("Starting AutoDiscovery for '" . cacti_sizeof($hosts) . "' Hosts");
 
 	/* set a process lock */
 	db_execute('REPLACE INTO plugin_mikrotik_processes (pid, taskid) VALUES (' . getmypid() . ', 0)');
 
 	if (cacti_sizeof($hosts)) {
-	foreach($hosts as $host) {
-		debug("AutoDiscovery Check for Host '" . $host['description'] . ' [' . $host['hostname'] . "]'");
-		if (strpos($host['snmp_sysDescr'], 'RouterOS') !== false) {
-			debug("Host '" . $host['description'] . '[' . $host['hostname'] . "]' Supports MikroTik Resources");
-			db_execute('INSERT INTO plugin_mikrotik_system (host_id) VALUES (' . $host['id'] . ') ON DUPLICATE KEY UPDATE host_id=VALUES(host_id)');
-		} else if ($host['host_template_id'] == $template_id) {
-			debug("Host '" . $host['description'] . '[' . $host['hostname'] . "]' Supports MikroTik Resources");
-			db_execute('INSERT INTO plugin_mikrotik_system (host_id) VALUES (' . $host['id'] . ') ON DUPLICATE KEY UPDATE host_id=VALUES(host_id)');
+		foreach($hosts as $host) {
+			debug("AutoDiscovery Check for Host '" . $host['description'] . ' [' . $host['hostname'] . "]'");
+			if (strpos($host['snmp_sysDescr'], 'RouterOS') !== false && strpos($host['snmp_sysDescr'], 'SwOS') === false) {
+				debug("Host '" . $host['description'] . '[' . $host['hostname'] . "]' Supports MikroTik Resources");
+				db_execute('INSERT INTO plugin_mikrotik_system (host_id) VALUES (' . $host['id'] . ') ON DUPLICATE KEY UPDATE host_id=VALUES(host_id)');
+			} else if ($host['host_template_id'] == $template_id) {
+				debug("Host '" . $host['description'] . '[' . $host['hostname'] . "]' Supports MikroTik Resources");
+				db_execute('INSERT INTO plugin_mikrotik_system (host_id) VALUES (' . $host['id'] . ') ON DUPLICATE KEY UPDATE host_id=VALUES(host_id)');
+			}
 		}
-	}
 	}
 
 	/* remove the process lock */
@@ -267,10 +269,12 @@ function process_hosts() {
 	foreach ($types as $t) {
 		$lastrun = read_config_option('mikrotik_' . $t . '_lastrun');
 		$freq = read_config_option('mikrotik_' . $t . '_freq');
+
 		if (runCollector($start, $lastrun, $freq)) {
 			$run = true;
 		}
 	}
+
 	if (!$run) {
 		print "No collectors scheduled for this run, exiting\n";
 		exit;
@@ -298,25 +302,25 @@ function process_hosts() {
 
 	$i = 0;
 	if (cacti_sizeof($hosts)) {
-	foreach ($hosts as $host) {
-		while ( true ) {
-			$processes = db_fetch_cell('SELECT COUNT(*) FROM plugin_mikrotik_processes');
+		foreach ($hosts as $host) {
+			while (true) {
+				$processes = db_fetch_cell('SELECT COUNT(*) FROM plugin_mikrotik_processes');
 
-			if ($processes < $concurrent_processes) {
-				/* put a placeholder in place to prevent overloads on slow systems */
-				$key = rand();
-				db_execute("INSERT INTO plugin_mikrotik_processes (pid, taskid, started) VALUES ($key, $seed, NOW())");
+				if ($processes < $concurrent_processes) {
+					/* put a placeholder in place to prevent overloads on slow systems */
+					$key = rand();
+					db_execute("INSERT INTO plugin_mikrotik_processes (pid, taskid, started) VALUES ($key, $seed, NOW())");
 
-				print "NOTE: Launching Host Collector For: '" . $host['description'] . '[' . $host['hostname'] . "]'\n";
-				process_host($host['host_id'], $seed, $key);
-				usleep(10000);
+					print "NOTE: Launching Host Collector For: '" . $host['description'] . '[' . $host['hostname'] . "]'\n";
+					process_host($host['host_id'], $seed, $key);
+					usleep(10000);
 
-				break;
-			} else {
-				sleep(1);
+					break;
+				} else {
+					sleep(1);
+				}
 			}
 		}
-	}
 	}
 
 	/* taking a break cause for slow systems slow */
@@ -325,7 +329,7 @@ function process_hosts() {
 	print "NOTE: All Hosts Launched, proceeding to wait for completion\n";
 
 	/* wait for all processes to end or max run time */
-	while ( true ) {
+	while (true) {
 		$processes_left = db_fetch_cell("SELECT count(*) FROM plugin_mikrotik_processes WHERE taskid=$seed");
 		$pl = db_fetch_cell('SELECT count(*) FROM plugin_mikrotik_processes');
 
@@ -1251,11 +1255,14 @@ function collect_dhcp_details(&$host) {
 			array($host['id'])),
 		'mac_address', $rekey_array);
 
-	$creds = db_fetch_row_prepared('SELECT * FROM plugin_mikrotik_credentials WHERE host_id = ?', array($host['id']));
+	$creds = db_fetch_row_prepared('SELECT *
+		FROM plugin_mikrotik_credentials
+		WHERE host_id = ?',
+		array($host['id']));
 
 	$start = microtime(true);
 
-	if (cacti_sizeof($creds)) {
+	if (cacti_sizeof($creds) && read_config_option('mikrotik_api_enabled') == 'on') {
 		if ($api->connect($host['hostname'], $creds['user'], $creds['password'])) {
 			$noServer = false;
 
@@ -1371,7 +1378,7 @@ function collect_dhcp_details(&$host) {
 
 			$api->disconnect();
 		} else {
-			cacti_log('ERROR:RouterOS @ ' . $host['description'] . ' Timed Out');
+			cacti_log('ERROR: Device[' . $host['id'] . '] for RouterOS API Call Timed Out.  Check for an invalid API password!');
 		}
 	}
 }
@@ -1401,11 +1408,14 @@ function collect_pppoe_users_api(&$host) {
 		AND name LIKE 'PPPOE-%'", array($host['id'])),
 		'name', $rekey_array);
 
-	$creds = db_fetch_row_prepared('SELECT * FROM plugin_mikrotik_credentials WHERE host_id = ?', array($host['id']));
+	$creds = db_fetch_row_prepared('SELECT *
+		FROM plugin_mikrotik_credentials
+		WHERE host_id = ?',
+		array($host['id']));
 
 	$start = microtime(true);
 
-	if (cacti_sizeof($creds)) {
+	if (cacti_sizeof($creds) && read_config_option('mikrotik_api_enabled') == 'on') {
 		if ($api->connect($host['hostname'], $creds['user'], $creds['password'])) {
 			$api->write('/ppp/active/getall');
 
@@ -1502,7 +1512,7 @@ function collect_pppoe_users_api(&$host) {
 
 			$api->disconnect();
 		} else {
-			cacti_log('ERROR:RouterOS @ ' . $host['description'] . ' Timed Out');
+			cacti_log('ERROR: Device[' . $host['id'] . '] for RouterOS API Call Timed Out.  Check for an invalid API password!');
 		}
 	}
 }
